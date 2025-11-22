@@ -140,61 +140,59 @@ jobs:
         run: |
           echo "应用无USB配置..."
           mkdir -p openwrt
-          # 创建简化配置
-          cat > openwrt/.config << 'EOF'
-CONFIG_TARGET_mediatek=y
-CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_ROOTFS_EXT4FS=n
-CONFIG_TARGET_KERNEL_PARTSIZE=32
-CONFIG_TARGET_ROOTFS_PARTSIZE=1024
-CONFIG_PACKAGE_block-mount=y
-CONFIG_PACKAGE_uhttpd=y
-CONFIG_PACKAGE_fstools=y
-CONFIG_PACKAGE_procd=y
-CONFIG_PACKAGE_uci=y
-CONFIG_PACKAGE_ubus=y
-CONFIG_PACKAGE_ubox=y
-CONFIG_PACKAGE_kmod-mt7915e=y
-CONFIG_PACKAGE_kmod-mt7916-firmware=y
-CONFIG_PACKAGE_kmod-mtk-esw-rt3050=y
-CONFIG_PACKAGE_kmod-mtk-hnat=y
-CONFIG_PACKAGE_kmod-mtk-ppe=y
-CONFIG_PACKAGE_kmod-phy-mediatek-ge-soc=y
-CONFIG_PACKAGE_dnsmasq=y
-CONFIG_PACKAGE_dnsmasq-full=y
-CONFIG_PACKAGE_firewall=y
-CONFIG_PACKAGE_odhcpd=y
-CONFIG_PACKAGE_odhcp6c=y
-CONFIG_PACKAGE_iptables=y
-CONFIG_PACKAGE_ip6tables=y
-CONFIG_PACKAGE_docker=y
-CONFIG_PACKAGE_dockerd=y
-CONFIG_PACKAGE_libdevmapper=y
-CONFIG_PACKAGE_libltdl=y
-CONFIG_PACKAGE_kmod-dm=y
-CONFIG_PACKAGE_kmod-br-netfilter=y
-CONFIG_PACKAGE_kmod-veth=y
-CONFIG_PACKAGE_kmod-ipt-core=y
-CONFIG_PACKAGE_kmod-ipt-nat=y
-CONFIG_PACKAGE_kmod-nf-conntrack=y
-CONFIG_PACKAGE_kmod-nf-nat=y
-CONFIG_PACKAGE_kmod-fuse=y
-CONFIG_PACKAGE_kmod-loop=y
-CONFIG_PACKAGE_luci=y
-CONFIG_PACKAGE_luci-ssl-openssl=y
-CONFIG_PACKAGE_luci-app-dockerman=y
-CONFIG_PACKAGE_luci-app-firewall=y
-CONFIG_PACKAGE_luci-theme-bootstrap=y
-CONFIG_PACKAGE_curl=y
-CONFIG_PACKAGE_bash=y
-CONFIG_PACKAGE_python3=y
-CONFIG_PACKAGE_kmod-fs-ext4=y
-CONFIG_PACKAGE_kmod-fs-squashfs=y
-CONFIG_CCACHE=y
-CONFIG_BUILD_LOG=y
-EOF
+          # 使用逐行echo写入配置，避免多行字符串问题
+          echo "CONFIG_TARGET_mediatek=y" > openwrt/.config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> openwrt/.config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> openwrt/.config
+          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> openwrt/.config
+          echo "CONFIG_TARGET_ROOTFS_EXT4FS=n" >> openwrt/.config
+          echo "CONFIG_TARGET_KERNEL_PARTSIZE=32" >> openwrt/.config
+          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024" >> openwrt/.config
+          echo "CONFIG_PACKAGE_block-mount=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_uhttpd=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_fstools=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_procd=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_uci=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_ubus=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_ubox=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-mt7915e=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-mt7916-firmware=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-mtk-esw-rt3050=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-mtk-hnat=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-mtk-ppe=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-phy-mediatek-ge-soc=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_dnsmasq=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_dnsmasq-full=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_firewall=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_odhcpd=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_odhcp6c=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_iptables=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_ip6tables=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_docker=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_dockerd=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_libdevmapper=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_libltdl=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-dm=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-br-netfilter=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-veth=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-ipt-core=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-ipt-nat=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-nf-conntrack=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-nf-nat=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-fuse=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-loop=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_luci=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_luci-ssl-openssl=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_luci-app-firewall=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_curl=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_bash=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_python3=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> openwrt/.config
+          echo "CONFIG_PACKAGE_kmod-fs-squashfs=y" >> openwrt/.config
+          echo "CONFIG_CCACHE=y" >> openwrt/.config
+          echo "CONFIG_BUILD_LOG=y" >> openwrt/.config
           echo "配置文件已生成"
 
       - name: 更新feeds
