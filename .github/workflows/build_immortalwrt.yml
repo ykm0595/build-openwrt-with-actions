@@ -32,9 +32,6 @@ jobs:
         run: |
           echo "=== 初始磁盘空间 ==="
           df -h
-          echo "=== 工作目录检查 ==="
-          pwd
-          ls -la
           echo "==================="
 
       - name: 深度磁盘清理
@@ -53,21 +50,48 @@ jobs:
           sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null || true
           echo "清理完成"
 
-      - name: 安装精简版依赖
+      - name: 更新软件源并安装依赖
         run: |
-          echo "安装最小化编译依赖..."
+          echo "更新软件源并安装依赖..."
           sudo apt update
+          sudo apt upgrade -y
+          
+          # 添加 universe 和 multiverse 仓库
+          sudo apt install -y software-properties-common
+          sudo add-apt-repository -y universe
+          sudo add-apt-repository -y multiverse
+          sudo apt update
+          
+          # 安装核心编译工具
           sudo apt install -y --no-install-recommends \
             build-essential ccache cmake curl flex gawk gettext git \
             libncurses-dev libssl-dev python3 python3-pip python3-setuptools \
             rsync subversion unzip wget zlib1g-dev \
-            libjson-c-dev libubox-dev libubus-dev libpcre2-dev \
-            libmbedtls-dev libsodium-dev libc-ares-dev \
             gcc-multilib g++-multilib pkg-config autoconf automake libtool \
             device-tree-compiler lld llvm ninja-build upx-ucl zstd \
             file gperf help2man texinfo xsltproc
+          
+          # 安装 OpenWrt 特定依赖（使用可用的包名）
+          sudo apt install -y \
+            libjson-c-dev libpcre2-dev libmbedtls-dev libsodium-dev \
+            libc-ares-dev libcurl4-openssl-dev libxml2-dev libsqlite3-dev
+          
+          # 尝试安装可能名称不同的包
+          sudo apt install -y libubox-dev || echo "libubox-dev 不可用，将在编译时构建"
+          sudo apt install -y libubus-dev || echo "libubus-dev 不可用，将在编译时构建"
+          
+          # 安装其他可能需要的依赖
+          sudo apt install -y \
+            asciidoc bash-completion bison bzip2 diffutils fastjar findutils \
+            genisoimage gzip libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev \
+            libmpc-dev libmpfr-dev libpopt-dev libreadline-dev libtool-bin \
+            libyaml-dev make patch perl pkg-config poppler-utils python2.7-dev \
+            qemu-utils re2c scons squashfs-tools time unar util-linux vim xxd
+          
+          # 清理APT缓存
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
+          echo "依赖安装完成"
 
       - name: 设置ccache优化
         run: |
@@ -80,13 +104,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - name: 检查当前目录状态
-        run: |
-          echo "=== 克隆后目录状态 ==="
-          pwd
-          ls -la
-          echo "===================="
 
       - name: 浅克隆 ImmortalWrt 源码
         uses: actions/checkout@v4
@@ -102,13 +119,10 @@ jobs:
           if [ -d "openwrt" ]; then
             echo "✅ openwrt 目录存在"
             ls -la openwrt/
-            echo "目录大小:"
-            du -sh openwrt
           else
             echo "❌ openwrt 目录不存在，创建空目录"
             mkdir -p openwrt
           fi
-          echo "===================="
 
       - name: 编译前空间确认
         run: |
@@ -125,75 +139,65 @@ jobs:
       - name: 应用无USB配置
         run: |
           echo "应用无USB配置..."
-          # 确保 openwrt 目录存在
           mkdir -p openwrt
-          # 使用逐行写入避免多行字符串问题
-          {
-            echo "CONFIG_TARGET_mediatek=y"
-            echo "CONFIG_TARGET_mediatek_filogic=y"
-            echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y"
-            echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y"
-            echo "CONFIG_TARGET_ROOTFS_EXT4FS=n"
-            echo "CONFIG_TARGET_KERNEL_PARTSIZE=32"
-            echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
-            echo "CONFIG_PACKAGE_block-mount=y"
-            echo "CONFIG_PACKAGE_uhttpd=y"
-            echo "CONFIG_PACKAGE_fstools=y"
-            echo "CONFIG_PACKAGE_procd=y"
-            echo "CONFIG_PACKAGE_uci=y"
-            echo "CONFIG_PACKAGE_ubus=y"
-            echo "CONFIG_PACKAGE_ubox=y"
-            echo "CONFIG_PACKAGE_kmod-mt7915e=y"
-            echo "CONFIG_PACKAGE_kmod-mt7916-firmware=y"
-            echo "CONFIG_PACKAGE_kmod-mtk-esw-rt3050=y"
-            echo "CONFIG_PACKAGE_kmod-mtk-hnat=y"
-            echo "CONFIG_PACKAGE_kmod-mtk-ppe=y"
-            echo "CONFIG_PACKAGE_kmod-phy-mediatek-ge-soc=y"
-            echo "CONFIG_PACKAGE_dnsmasq=y"
-            echo "CONFIG_PACKAGE_dnsmasq-full=y"
-            echo "CONFIG_PACKAGE_firewall=y"
-            echo "CONFIG_PACKAGE_odhcpd=y"
-            echo "CONFIG_PACKAGE_odhcp6c=y"
-            echo "CONFIG_PACKAGE_iptables=y"
-            echo "CONFIG_PACKAGE_ip6tables=y"
-            echo "CONFIG_PACKAGE_docker=y"
-            echo "CONFIG_PACKAGE_dockerd=y"
-            echo "CONFIG_PACKAGE_docker-compose=y"
-            echo "CONFIG_PACKAGE_containerd=y"
-            echo "CONFIG_PACKAGE_runc=y"
-            echo "CONFIG_PACKAGE_libdevmapper=y"
-            echo "CONFIG_PACKAGE_libltdl=y"
-            echo "CONFIG_PACKAGE_libnetwork=y"
-            echo "CONFIG_PACKAGE_libstdcpp=y"
-            echo "CONFIG_PACKAGE_kmod-dm=y"
-            echo "CONFIG_PACKAGE_kmod-br-netfilter=y"
-            echo "CONFIG_PACKAGE_kmod-veth=y"
-            echo "CONFIG_PACKAGE_kmod-ipt-core=y"
-            echo "CONFIG_PACKAGE_kmod-ipt-nat=y"
-            echo "CONFIG_PACKAGE_kmod-nf-conntrack=y"
-            echo "CONFIG_PACKAGE_kmod-nf-nat=y"
-            echo "CONFIG_PACKAGE_kmod-fuse=y"
-            echo "CONFIG_PACKAGE_kmod-loop=y"
-            echo "CONFIG_PACKAGE_luci=y"
-            echo "CONFIG_PACKAGE_luci-ssl-openssl=y"
-            echo "CONFIG_PACKAGE_luci-app-dockerman=y"
-            echo "CONFIG_PACKAGE_luci-app-firewall=y"
-            echo "CONFIG_PACKAGE_luci-theme-bootstrap=y"
-            echo "CONFIG_PACKAGE_curl=y"
-            echo "CONFIG_PACKAGE_bash=y"
-            echo "CONFIG_PACKAGE_htop=y"
-            echo "CONFIG_PACKAGE_python3=y"
-            echo "CONFIG_PACKAGE_python3-pip=y"
-            echo "CONFIG_PACKAGE_kmod-fs-ext4=y"
-            echo "CONFIG_PACKAGE_kmod-fs-vfat=y"
-            echo "CONFIG_PACKAGE_kmod-fs-squashfs=y"
-            echo "CONFIG_CCACHE=y"
-            echo "CONFIG_BUILD_LOG=y"
-          } > openwrt/.config
+          # 创建简化配置
+          cat > openwrt/.config << 'EOF'
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_EXT4FS=n
+CONFIG_TARGET_KERNEL_PARTSIZE=32
+CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_uhttpd=y
+CONFIG_PACKAGE_fstools=y
+CONFIG_PACKAGE_procd=y
+CONFIG_PACKAGE_uci=y
+CONFIG_PACKAGE_ubus=y
+CONFIG_PACKAGE_ubox=y
+CONFIG_PACKAGE_kmod-mt7915e=y
+CONFIG_PACKAGE_kmod-mt7916-firmware=y
+CONFIG_PACKAGE_kmod-mtk-esw-rt3050=y
+CONFIG_PACKAGE_kmod-mtk-hnat=y
+CONFIG_PACKAGE_kmod-mtk-ppe=y
+CONFIG_PACKAGE_kmod-phy-mediatek-ge-soc=y
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_odhcpd=y
+CONFIG_PACKAGE_odhcp6c=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_ip6tables=y
+CONFIG_PACKAGE_docker=y
+CONFIG_PACKAGE_dockerd=y
+CONFIG_PACKAGE_libdevmapper=y
+CONFIG_PACKAGE_libltdl=y
+CONFIG_PACKAGE_kmod-dm=y
+CONFIG_PACKAGE_kmod-br-netfilter=y
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-ipt-core=y
+CONFIG_PACKAGE_kmod-ipt-nat=y
+CONFIG_PACKAGE_kmod-nf-conntrack=y
+CONFIG_PACKAGE_kmod-nf-nat=y
+CONFIG_PACKAGE_kmod-fuse=y
+CONFIG_PACKAGE_kmod-loop=y
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl-openssl=y
+CONFIG_PACKAGE_luci-app-dockerman=y
+CONFIG_PACKAGE_luci-app-firewall=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_bash=y
+CONFIG_PACKAGE_python3=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-squashfs=y
+CONFIG_CCACHE=y
+CONFIG_BUILD_LOG=y
+EOF
           echo "配置文件已生成"
 
       - name: 更新feeds
-        id: update-feeds
         run: |
           echo "更新feeds..."
           if [ -d "openwrt" ]; then
@@ -207,7 +211,6 @@ jobs:
           fi
 
       - name: 配置检查
-        id: config-check
         run: |
           echo "应用配置优化..."
           if [ -d "openwrt" ]; then
@@ -221,7 +224,6 @@ jobs:
           fi
 
       - name: 下载源码
-        id: download-sources
         run: |
           echo "下载源码..."
           if [ -d "openwrt" ]; then
@@ -233,7 +235,6 @@ jobs:
           fi
 
       - name: 编译工具链
-        id: build-toolchain
         run: |
           echo "编译工具链..."
           if [ -d "openwrt" ]; then
@@ -246,7 +247,6 @@ jobs:
           fi
 
       - name: 编译核心系统
-        id: build-core
         run: |
           echo "编译核心系统..."
           if [ -d "openwrt" ]; then
@@ -263,7 +263,6 @@ jobs:
           fi
 
       - name: 编译Docker组件
-        id: build-docker
         if: ${{ !inputs.skip_kmods }}
         run: |
           echo "编译Docker组件..."
@@ -276,42 +275,7 @@ jobs:
             exit 1
           fi
 
-      - name: 空间监控
-        run: |
-          echo "编译中磁盘空间:"
-          df -h
-          echo "当前目录状态:"
-          pwd
-          ls -la
-          if [ -d "openwrt" ]; then
-            echo "openwrt目录存在，大小:"
-            du -sh openwrt
-          else
-            echo "警告: openwrt目录不存在"
-          fi
-
-      - name: 清理中间文件
-        if: always()
-        run: |
-          echo "清理中间文件..."
-          if [ -d "openwrt" ]; then
-            echo "进入openwrt目录清理..."
-            cd openwrt
-            if [ -d "build_dir" ]; then
-              find build_dir -name "*.o" -delete 2>/dev/null || true
-              find build_dir -name "*.a" -delete 2>/dev/null || true
-              echo "build_dir清理完成"
-            else
-              echo "build_dir不存在，跳过清理"
-            fi
-            rm -rf logs/* tmp/* 2>/dev/null || true
-            echo "中间文件清理完成"
-          else
-            echo "openwrt目录不存在，跳过清理中间文件"
-          fi
-
       - name: 验证编译结果
-        id: verify-build
         run: |
           echo "检查编译产物..."
           if [ -d "openwrt" ]; then
@@ -330,18 +294,6 @@ jobs:
             exit 1
           fi
 
-      - name: 最终空间报告
-        run: |
-          echo "最终磁盘空间:"
-          df -h
-          echo "工作目录内容:"
-          pwd
-          ls -la
-          if [ -d "openwrt" ]; then
-            echo "openwrt目录内容:"
-            ls -la openwrt/bin/ 2>/dev/null || echo "openwrt/bin目录不存在"
-          fi
-
       - name: 上传编译产物
         if: success()
         uses: actions/upload-artifact@v4
@@ -351,18 +303,6 @@ jobs:
             openwrt/bin/targets/**/*
             openwrt/bin/packages/**/docker*.ipk
           retention-days: 30
-
-      - name: 清理工作空间
-        if: always()
-        run: |
-          echo "清理工作空间..."
-          if [ -d "openwrt" ]; then
-            echo "清理openwrt构建目录..."
-            rm -rf openwrt/build_dir openwrt/staging_dir openwrt/tmp 2>/dev/null || true
-            echo "工作空间清理完成"
-          else
-            echo "openwrt目录不存在，跳过工作空间清理"
-          fi
 
       - name: 生成编译报告
         if: always()
