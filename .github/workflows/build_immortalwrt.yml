@@ -32,8 +32,9 @@ jobs:
         run: |
           echo "=== 初始磁盘空间 ==="
           df -h
-          echo "=== 大目录分析 ==="
-          sudo du -sh /opt/* /usr/local/* /var/lib/docker 2>/dev/null | sort -hr | head -10 || true
+          echo "=== 工作目录检查 ==="
+          pwd
+          ls -la
           echo "==================="
 
       - name: 深度磁盘清理
@@ -51,18 +52,6 @@ jobs:
           sudo journalctl --vacuum-time=1h 2>/dev/null || true
           sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null || true
           echo "清理完成"
-
-      - name: 清理后空间检查
-        run: |
-          echo "=== 清理后磁盘空间 ==="
-          df -h
-          AVAILABLE=$(df / --output=avail | tail -1)
-          REQUIRED=15000000
-          if [ $AVAILABLE -lt $REQUIRED ]; then
-            echo "错误: 磁盘空间不足! 需要15GB，当前只有 ${AVAILABLE}KB"
-            sudo rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/* 2>/dev/null || true
-          fi
-          echo "可用空间: ${AVAILABLE}KB"
 
       - name: 安装精简版依赖
         run: |
@@ -92,6 +81,13 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: 检查当前目录状态
+        run: |
+          echo "=== 克隆后目录状态 ==="
+          pwd
+          ls -la
+          echo "===================="
+
       - name: 浅克隆 ImmortalWrt 源码
         uses: actions/checkout@v4
         with:
@@ -99,6 +95,20 @@ jobs:
           ref: ${{ env.BRANCH }}
           path: openwrt
           fetch-depth: 1
+
+      - name: 验证源码目录
+        run: |
+          echo "=== 验证 openwrt 目录 ==="
+          if [ -d "openwrt" ]; then
+            echo "✅ openwrt 目录存在"
+            ls -la openwrt/
+            echo "目录大小:"
+            du -sh openwrt
+          else
+            echo "❌ openwrt 目录不存在，创建空目录"
+            mkdir -p openwrt
+          fi
+          echo "===================="
 
       - name: 编译前空间确认
         run: |
@@ -115,6 +125,7 @@ jobs:
       - name: 应用无USB配置
         run: |
           echo "应用无USB配置..."
+          # 确保 openwrt 目录存在
           mkdir -p openwrt
           # 使用逐行写入避免多行字符串问题
           {
@@ -182,75 +193,140 @@ jobs:
           echo "配置文件已生成"
 
       - name: 更新feeds
-        working-directory: openwrt
+        id: update-feeds
         run: |
           echo "更新feeds..."
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          if [ -d "openwrt" ]; then
+            cd openwrt
+            ./scripts/feeds update -a
+            ./scripts/feeds install -a
+            echo "feeds更新完成"
+          else
+            echo "错误: openwrt目录不存在"
+            exit 1
+          fi
 
       - name: 配置检查
-        working-directory: openwrt
+        id: config-check
         run: |
           echo "应用配置优化..."
-          make defconfig
-          ./scripts/diffconfig.sh > diffconfig.txt
-          echo "配置优化完成"
+          if [ -d "openwrt" ]; then
+            cd openwrt
+            make defconfig
+            ./scripts/diffconfig.sh > diffconfig.txt
+            echo "配置优化完成"
+          else
+            echo "错误: openwrt目录不存在"
+            exit 1
+          fi
 
       - name: 下载源码
-        working-directory: openwrt
+        id: download-sources
         run: |
           echo "下载源码..."
-          make download -j2 V=0 || make download -j1 V=0
+          if [ -d "openwrt" ]; then
+            cd openwrt
+            make download -j2 V=0 || make download -j1 V=0
+          else
+            echo "错误: openwrt目录不存在"
+            exit 1
+          fi
 
       - name: 编译工具链
-        working-directory: openwrt
+        id: build-toolchain
         run: |
           echo "编译工具链..."
-          make tools/compile -j1 V=0
-          make toolchain/compile -j1 V=0
+          if [ -d "openwrt" ]; then
+            cd openwrt
+            make tools/compile -j1 V=0
+            make toolchain/compile -j1 V=0
+          else
+            echo "错误: openwrt目录不存在"
+            exit 1
+          fi
 
       - name: 编译核心系统
-        working-directory: openwrt
+        id: build-core
         run: |
           echo "编译核心系统..."
-          if [ "${{ inputs.minimal_build }}" = "true" ]; then
-            echo "使用最小化编译模式..."
-            make -j2 V=s
+          if [ -d "openwrt" ]; then
+            cd openwrt
+            if [ "${{ inputs.minimal_build }}" = "true" ]; then
+              echo "使用最小化编译模式..."
+              make -j2 V=s
+            else
+              make -j$(nproc) V=s
+            fi
           else
-            make -j$(nproc) V=s
+            echo "错误: openwrt目录不存在"
+            exit 1
           fi
 
       - name: 编译Docker组件
-        working-directory: openwrt
+        id: build-docker
         if: ${{ !inputs.skip_kmods }}
         run: |
           echo "编译Docker组件..."
-          make package/feeds/packages/docker/compile V=s -j2
-          make package/feeds/packages/dockerd/compile V=s -j2
+          if [ -d "openwrt" ]; then
+            cd openwrt
+            make package/feeds/packages/docker/compile V=s -j2
+            make package/feeds/packages/dockerd/compile V=s -j2
+          else
+            echo "错误: openwrt目录不存在"
+            exit 1
+          fi
 
       - name: 空间监控
         run: |
           echo "编译中磁盘空间:"
           df -h
+          echo "当前目录状态:"
+          pwd
+          ls -la
+          if [ -d "openwrt" ]; then
+            echo "openwrt目录存在，大小:"
+            du -sh openwrt
+          else
+            echo "警告: openwrt目录不存在"
+          fi
 
       - name: 清理中间文件
         if: always()
-        working-directory: openwrt
         run: |
           echo "清理中间文件..."
-          find build_dir -name "*.o" -delete 2>/dev/null || true
-          find build_dir -name "*.a" -delete 2>/dev/null || true
-          rm -rf logs/* tmp/* 2>/dev/null || true
+          if [ -d "openwrt" ]; then
+            echo "进入openwrt目录清理..."
+            cd openwrt
+            if [ -d "build_dir" ]; then
+              find build_dir -name "*.o" -delete 2>/dev/null || true
+              find build_dir -name "*.a" -delete 2>/dev/null || true
+              echo "build_dir清理完成"
+            else
+              echo "build_dir不存在，跳过清理"
+            fi
+            rm -rf logs/* tmp/* 2>/dev/null || true
+            echo "中间文件清理完成"
+          else
+            echo "openwrt目录不存在，跳过清理中间文件"
+          fi
 
       - name: 验证编译结果
-        working-directory: openwrt
+        id: verify-build
         run: |
           echo "检查编译产物..."
-          if find bin/targets -name "*sl_3000*" | grep -q .; then
-            echo "SL-3000固件编译成功"
-            find bin/targets -name "*sl_3000*.bin" -exec echo "固件: {}" \;
+          if [ -d "openwrt" ]; then
+            cd openwrt
+            if find bin/targets -name "*sl_3000*" 2>/dev/null | grep -q .; then
+              echo "✅ SL-3000固件编译成功"
+              find bin/targets -name "*sl_3000*.bin" -exec echo "固件: {}" \;
+            else
+              echo "❌ 未找到SL-3000固件"
+              echo "当前目录内容:"
+              ls -la bin/targets/ 2>/dev/null || echo "bin/targets目录不存在"
+              exit 1
+            fi
           else
-            echo "未找到SL-3000固件"
+            echo "❌ openwrt目录不存在，无法验证编译结果"
             exit 1
           fi
 
@@ -258,8 +334,16 @@ jobs:
         run: |
           echo "最终磁盘空间:"
           df -h
+          echo "工作目录内容:"
+          pwd
+          ls -la
+          if [ -d "openwrt" ]; then
+            echo "openwrt目录内容:"
+            ls -la openwrt/bin/ 2>/dev/null || echo "openwrt/bin目录不存在"
+          fi
 
       - name: 上传编译产物
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-sl3000-nousb-${{ github.run_id }}
@@ -272,11 +356,28 @@ jobs:
         if: always()
         run: |
           echo "清理工作空间..."
-          rm -rf openwrt/build_dir openwrt/staging_dir openwrt/tmp 2>/dev/null || true
+          if [ -d "openwrt" ]; then
+            echo "清理openwrt构建目录..."
+            rm -rf openwrt/build_dir openwrt/staging_dir openwrt/tmp 2>/dev/null || true
+            echo "工作空间清理完成"
+          else
+            echo "openwrt目录不存在，跳过工作空间清理"
+          fi
 
       - name: 生成编译报告
+        if: always()
         run: |
-          echo "编译完成报告" > build-report.txt
+          echo "=== 编译完成报告 ===" > build-report.txt
           echo "时间: $(date)" >> build-report.txt
+          echo "工作流结果: ${{ job.status }}" >> build-report.txt
+          echo "最终磁盘空间:" >> build-report.txt
           df -h >> build-report.txt
-          find openwrt/bin -name "*.bin" -exec echo "固件: {}" \; >> build-report.txt 2>/dev/null || true
+          
+          if [ -d "openwrt" ]; then
+            echo "编译产物:" >> build-report.txt
+            find openwrt/bin -name "*.bin" -exec echo "固件: {}" \; >> build-report.txt 2>/dev/null || echo "未找到固件文件" >> build-report.txt
+          else
+            echo "openwrt目录不存在" >> build-report.txt
+          fi
+          
+          cat build-report.txt
