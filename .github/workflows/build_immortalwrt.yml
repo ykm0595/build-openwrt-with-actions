@@ -39,35 +39,17 @@ jobs:
       - name: 深度磁盘清理
         run: |
           echo "执行深度磁盘清理..."
-          
-          # APT 清理
           sudo apt autoremove -y
           sudo apt autoclean
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
-          
-          # 删除大型开发工具包
-          sudo rm -rf /usr/local/lib/android 2>/dev/null || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL 2>/dev/null || true
-          sudo rm -rf /usr/share/dotnet 2>/dev/null || true
-          sudo rm -rf /opt/ghc 2>/dev/null || true
-          sudo rm -rf /opt/hostedtoolcache/PyPy 2>/dev/null || true
-          sudo rm -rf /opt/microsoft 2>/dev/null || true
-          
-          # Docker 清理
+          sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/share/dotnet 2>/dev/null || true
+          sudo rm -rf /opt/ghc /opt/hostedtoolcache/PyPy /opt/microsoft 2>/dev/null || true
           docker system prune -af 2>/dev/null || true
           sudo rm -rf /var/lib/docker/* 2>/dev/null || true
-          
-          # 缓存和临时文件清理
-          sudo rm -rf /tmp/*
-          sudo rm -rf /var/tmp/*
-          sudo rm -rf /var/cache/*
-          sudo rm -rf ~/.cache/*
-          
-          # 日志清理
+          sudo rm -rf /tmp/* /var/tmp/* /var/cache/* ~/.cache/*
           sudo journalctl --vacuum-time=1h 2>/dev/null || true
           sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null || true
-          
           echo "清理完成"
 
       - name: 清理后空间检查
@@ -75,14 +57,10 @@ jobs:
           echo "=== 清理后磁盘空间 ==="
           df -h
           AVAILABLE=$(df / --output=avail | tail -1)
-          REQUIRED=15000000  # 15GB
+          REQUIRED=15000000
           if [ $AVAILABLE -lt $REQUIRED ]; then
-            echo "❌ 错误: 磁盘空间不足! 需要15GB，当前只有 ${AVAILABLE}KB"
-            echo "尝试进一步清理..."
-            # 进一步清理
-            sudo rm -rf /usr/share/doc/* 2>/dev/null || true
-            sudo rm -rf /usr/share/man/* 2>/dev/null || true
-            sudo rm -rf /usr/share/locale/* 2>/dev/null || true
+            echo "错误: 磁盘空间不足! 需要15GB，当前只有 ${AVAILABLE}KB"
+            sudo rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/locale/* 2>/dev/null || true
           fi
           echo "可用空间: ${AVAILABLE}KB"
 
@@ -90,7 +68,6 @@ jobs:
         run: |
           echo "安装最小化编译依赖..."
           sudo apt update
-          # 只安装核心编译工具，避免不必要的文档和推荐包
           sudo apt install -y --no-install-recommends \
             build-essential ccache cmake curl flex gawk gettext git \
             libncurses-dev libssl-dev python3 python3-pip python3-setuptools \
@@ -100,16 +77,12 @@ jobs:
             gcc-multilib g++-multilib pkg-config autoconf automake libtool \
             device-tree-compiler lld llvm ninja-build upx-ucl zstd \
             file gperf help2man texinfo xsltproc
-
-          # 安装后立即清理APT缓存
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
 
       - name: 设置ccache优化
         run: |
-          # 设置ccache大小限制
           ccache -M 1G 2>/dev/null || true
-          # 设置Git优化减少空间占用
           git config --global pack.windowMemory 50m
           git config --global pack.packSizeLimit 50m
           git config --global core.compression 9
@@ -117,7 +90,6 @@ jobs:
       - name: 克隆当前仓库
         uses: actions/checkout@v4
         with:
-          # 浅克隆节省空间
           fetch-depth: 1
 
       - name: 浅克隆 ImmortalWrt 源码
@@ -126,7 +98,6 @@ jobs:
           repository: immortalwrt/immortalwrt
           ref: ${{ env.BRANCH }}
           path: openwrt
-          # 浅克隆，只获取最新提交
           fetch-depth: 1
 
       - name: 编译前空间确认
@@ -136,25 +107,24 @@ jobs:
           AVAILABLE=$(df / --output=avail | tail -1)
           echo "可用空间: ${AVAILABLE}KB"
           if [ $AVAILABLE -lt 8000000 ]; then
-            echo "⚠️ 警告: 磁盘空间紧张，编译可能失败"
+            echo "警告: 磁盘空间紧张，编译可能失败"
           else
-            echo "✅ 磁盘空间充足"
+            echo "磁盘空间充足"
           fi
 
       - name: 应用无USB配置
         run: |
           echo "应用无USB配置..."
-          # 创建完整的无USB配置文件
-          cat > openwrt/.config << 'EOF'
+          mkdir -p openwrt
+          # 使用简单的配置写入方式，避免复杂的多行字符串
+          cat > openwrt/.config << 'CONFIG_EOF'
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
 CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
-
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_ROOTFS_EXT4FS=n
 CONFIG_TARGET_KERNEL_PARTSIZE=32
 CONFIG_TARGET_ROOTFS_PARTSIZE=1024
-
 CONFIG_PACKAGE_block-mount=y
 CONFIG_PACKAGE_uhttpd=y
 CONFIG_PACKAGE_fstools=y
@@ -162,15 +132,12 @@ CONFIG_PACKAGE_procd=y
 CONFIG_PACKAGE_uci=y
 CONFIG_PACKAGE_ubus=y
 CONFIG_PACKAGE_ubox=y
-
 CONFIG_PACKAGE_kmod-mt7915e=y
 CONFIG_PACKAGE_kmod-mt7916-firmware=y
-
 CONFIG_PACKAGE_kmod-mtk-esw-rt3050=y
 CONFIG_PACKAGE_kmod-mtk-hnat=y
 CONFIG_PACKAGE_kmod-mtk-ppe=y
 CONFIG_PACKAGE_kmod-phy-mediatek-ge-soc=y
-
 CONFIG_PACKAGE_dnsmasq=y
 CONFIG_PACKAGE_dnsmasq-full=y
 CONFIG_PACKAGE_firewall=y
@@ -178,18 +145,15 @@ CONFIG_PACKAGE_odhcpd=y
 CONFIG_PACKAGE_odhcp6c=y
 CONFIG_PACKAGE_iptables=y
 CONFIG_PACKAGE_ip6tables=y
-
 CONFIG_PACKAGE_docker=y
 CONFIG_PACKAGE_dockerd=y
 CONFIG_PACKAGE_docker-compose=y
 CONFIG_PACKAGE_containerd=y
 CONFIG_PACKAGE_runc=y
-
 CONFIG_PACKAGE_libdevmapper=y
 CONFIG_PACKAGE_libltdl=y
 CONFIG_PACKAGE_libnetwork=y
 CONFIG_PACKAGE_libstdcpp=y
-
 CONFIG_PACKAGE_kmod-dm=y
 CONFIG_PACKAGE_kmod-br-netfilter=y
 CONFIG_PACKAGE_kmod-veth=y
@@ -199,36 +163,32 @@ CONFIG_PACKAGE_kmod-nf-conntrack=y
 CONFIG_PACKAGE_kmod-nf-nat=y
 CONFIG_PACKAGE_kmod-fuse=y
 CONFIG_PACKAGE_kmod-loop=y
-
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-ssl-openssl=y
 CONFIG_PACKAGE_luci-app-dockerman=y
 CONFIG_PACKAGE_luci-app-firewall=y
 CONFIG_PACKAGE_luci-theme-bootstrap=y
-
 CONFIG_PACKAGE_curl=y
 CONFIG_PACKAGE_bash=y
 CONFIG_PACKAGE_htop=y
 CONFIG_PACKAGE_python3=y
 CONFIG_PACKAGE_python3-pip=y
-
 CONFIG_PACKAGE_kmod-fs-ext4=y
 CONFIG_PACKAGE_kmod-fs-vfat=y
 CONFIG_PACKAGE_kmod-fs-squashfs=y
-
 CONFIG_CCACHE=y
 CONFIG_BUILD_LOG=y
-EOF
+CONFIG_EOF
           echo "配置文件已生成"
 
-      - name: 更新feeds (最小化)
+      - name: 更新feeds
         working-directory: openwrt
         run: |
-          echo "最小化更新feeds..."
+          echo "更新feeds..."
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 配置检查和优化
+      - name: 配置检查
         working-directory: openwrt
         run: |
           echo "应用配置优化..."
@@ -236,20 +196,20 @@ EOF
           ./scripts/diffconfig.sh > diffconfig.txt
           echo "配置优化完成"
 
-      - name: 分阶段下载源码
+      - name: 下载源码
         working-directory: openwrt
         run: |
-          echo "分阶段下载源码..."
+          echo "下载源码..."
           make download -j2 V=0 || make download -j1 V=0
 
-      - name: 编译工具链 (空间优化)
+      - name: 编译工具链
         working-directory: openwrt
         run: |
           echo "编译工具链..."
           make tools/compile -j1 V=0
           make toolchain/compile -j1 V=0
 
-      - name: 编译核心系统 (空间优化)
+      - name: 编译核心系统
         working-directory: openwrt
         run: |
           echo "编译核心系统..."
@@ -268,46 +228,36 @@ EOF
           make package/feeds/packages/docker/compile V=s -j2
           make package/feeds/packages/dockerd/compile V=s -j2
 
-      - name: 实时空间监控
+      - name: 空间监控
         run: |
-          echo "=== 编译中磁盘空间 ==="
+          echo "编译中磁盘空间:"
           df -h
-          echo "=== 编译目录大小 ==="
-          du -sh openwrt/build_dir openwrt/staging_dir openwrt/tmp 2>/dev/null || true
 
-      - name: 清理编译中间文件
+      - name: 清理中间文件
         if: always()
         working-directory: openwrt
         run: |
-          echo "清理中间文件以节省空间..."
+          echo "清理中间文件..."
           find build_dir -name "*.o" -delete 2>/dev/null || true
           find build_dir -name "*.a" -delete 2>/dev/null || true
-          rm -rf logs/* 2>/dev/null || true
-          rm -rf tmp/* 2>/dev/null || true
+          rm -rf logs/* tmp/* 2>/dev/null || true
 
       - name: 验证编译结果
         working-directory: openwrt
         run: |
           echo "检查编译产物..."
-          find bin/targets -name "*.bin" -o -name "*.img" | head -10
-          
-          echo "固件大小:"
-          find bin/targets -name "*.bin" -exec du -h {} \; | head -5 || true
-          
           if find bin/targets -name "*sl_3000*" | grep -q .; then
-            echo "✅ SL-3000固件编译成功"
-            find bin/targets -name "*sl_3000*.bin" -exec echo "最终固件: {}" \;
+            echo "SL-3000固件编译成功"
+            find bin/targets -name "*sl_3000*.bin" -exec echo "固件: {}" \;
           else
-            echo "❌ 未找到SL-3000固件"
+            echo "未找到SL-3000固件"
             exit 1
           fi
 
       - name: 最终空间报告
         run: |
-          echo "=== 最终磁盘空间 ==="
+          echo "最终磁盘空间:"
           df -h
-          echo "=== 产物目录大小 ==="
-          du -sh openwrt/bin || true
 
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
@@ -316,9 +266,7 @@ EOF
           path: |
             openwrt/bin/targets/**/*
             openwrt/bin/packages/**/docker*.ipk
-            openwrt/bin/packages/**/kmod-*.ipk
           retention-days: 30
-          compression-level: 0
 
       - name: 清理工作空间
         if: always()
@@ -328,10 +276,7 @@ EOF
 
       - name: 生成编译报告
         run: |
-          echo "=== 编译完成报告 ===" > build-report.txt
-          echo "编译时间: $(date)" >> build-report.txt
-          echo "最终磁盘空间:" >> build-report.txt
+          echo "编译完成报告" > build-report.txt
+          echo "时间: $(date)" >> build-report.txt
           df -h >> build-report.txt
-          echo "固件产物:" >> build-report.txt
-          find openwrt/bin -name "*.bin" -exec echo "- {}" \; >> build-report.txt 2>/dev/null || true
-          cat build-report.txt
+          find openwrt/bin -name "*.bin" -exec echo "固件: {}" \; >> build-report.txt 2>/dev/null || true
