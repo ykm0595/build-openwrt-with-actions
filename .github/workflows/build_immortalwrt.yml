@@ -1,70 +1,162 @@
-#!/bin/bash
-set -e
+name: 🚀 编译 immortalwrt
 
-check_disk_space() {
-    local required_gb=$1
-    local available_kb=$(df / --output=avail | tail -1)
-    local available_gb=$((available_kb / 1024 / 1024))
-    
-    echo "当前可用磁盘空间: ${available_gb}GB"
-    echo "所需磁盘空间: ${required_gb}GB"
-    
-    if [ $available_gb -lt $required_gb ]; then
-        echo "❌ 错误: 磁盘空间不足!"
-        echo "请尝试:"
-        echo "1. 删除不必要的软件包: sudo apt autoremove -y"
-        echo "2. 清理缓存: sudo apt clean && sudo rm -rf /var/lib/apt/lists/*"
-        echo "3. 删除Docker镜像: docker system prune -af"
-        echo "4. 删除临时文件: sudo rm -rf /tmp/*"
-        return 1
-    fi
-    return 0
-}
+on:
+  workflow_dispatch:
+    inputs:
+      owner:
+        description: "openWRT 仓库的拥有者"
+        required: true
+        default: "immortalwrt"
+      repo:
+        description: "openWRT 仓库的名字" 
+        required: true
+        default: "immortalwrt"
+      branch:
+        description: "openWRT 仓库的分支"
+        required: true
+        default: "openwrt-21.02"
+      multithreading:
+        description: "开启多线程编译"
+        type: boolean
+        default: true
+      ssh:
+        description: "使用ssh连接到编译环境"
+        type: boolean
+        default: false
+      isFiles:
+        description: "使用files大法"
+        type: boolean
+        default: false
 
-# 检查各目录占用空间
-analyze_disk_usage() {
-    echo "=== 磁盘使用分析 ==="
-    du -sh /opt/* /usr/local/* /var/lib/docker /var/cache 2>/dev/null | sort -hr | head -15
-}
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    name: 🚀 编译 ImmortalWRT
+    
+    steps:
+      - name: 检查初始磁盘空间
+        run: |
+          echo "=== 初始磁盘空间状态 ==="
+          df -h
+          echo "========================="
 
-# 执行清理操作
-cleanup_disk() {
-    echo "开始清理磁盘..."
-    
-    # APT 清理
-    sudo apt autoremove -y 2>/dev/null || true
-    sudo apt clean 2>/dev/null || true
-    
-    # 缓存清理
-    sudo rm -rf /var/lib/apt/lists/* 2>/dev/null || true
-    sudo rm -rf /tmp/* 2>/dev/null || true
-    sudo rm -rf /var/tmp/* 2>/dev/null || true
-    
-    # 日志清理
-    sudo journalctl --vacuum-time=1d 2>/dev/null || true
-    sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null || true
-    
-    # Docker 清理
-    docker system prune -af 2>/dev/null || true
-    
-    echo "清理完成"
-}
+      - name: 基础系统清理
+        run: |
+          echo "执行基础清理..."
+          sudo apt autoremove -y
+          sudo apt clean
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/share/dotnet 2>/dev/null || true
+          docker system prune -af 2>/dev/null || true
 
-# 主函数
-main() {
-    local required_gb=${1:-10}
-    
-    analyze_disk_usage
-    echo "---"
-    
-    if ! check_disk_space $required_gb; then
-        echo "尝试自动清理..."
-        cleanup_disk
-        echo "---"
-        check_disk_space $required_gb || exit 1
-    fi
-    
-    echo "✅ 磁盘空间充足，可以开始编译"
-}
+      - name: 安装编译依赖
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential ccache cmake curl flex gawk gettext \
+            git libncurses-dev libssl-dev python3 python3-pip \
+            rsync subversion unzip wget zlib1g-dev \
+            libjson-c-dev libubox-dev libubus-dev libpcre2-dev \
+            libmbedtls-dev libsodium-dev libc-ares-dev \
+            gcc-multilib g++-multilib pkg-config autoconf automake libtool
 
-main "$@"
+      - name: 克隆当前仓库
+        uses: actions/checkout@v4
+
+      - name: 克隆 OpenWRT 仓库
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.owner }}/${{ inputs.repo }}
+          ref: ${{ inputs.branch }}
+          path: openWRT
+
+      - name: 复制配置文件
+        run: |
+          if [ -f .config ]; then
+            cp .config openWRT/
+            echo "配置文件已复制"
+          else
+            echo "未找到 .config 文件，将使用默认配置"
+          fi
+          
+          if [ -f diy.sh ]; then
+            cp diy.sh openWRT/
+            chmod +x openWRT/diy.sh
+            echo "diy.sh 已复制并赋予执行权限"
+          fi
+
+      - name: 复制 files 目录
+        if: ${{ inputs.isFiles }}
+        run: |
+          if [ -d files ]; then
+            cp -r files openWRT/
+            echo "files 目录已复制"
+          else
+            echo "未找到 files 目录"
+          fi
+
+      - name: 运行自定义脚本
+        working-directory: openWRT
+        run: |
+          if [ -f diy.sh ]; then
+            echo "执行 diy.sh..."
+            ./diy.sh
+          else
+            echo "未找到 diy.sh，跳过执行"
+          fi
+
+      - name: 更新和安装 feeds
+        working-directory: openWRT
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 配置检查
+        working-directory: openWRT
+        run: |
+          if [ -f .config ]; then
+            echo "使用现有配置..."
+            make defconfig
+          else
+            echo "生成默认配置..."
+            make defconfig
+          fi
+
+      - name: SSH 调试会话
+        if: ${{ inputs.ssh }}
+        uses: csexton/debugger-action@master
+        timeout-minutes: 15
+
+      - name: 编译工具链
+        working-directory: openWRT
+        run: |
+          echo "编译工具链..."
+          make tools/compile -j$(nproc) V=0
+          make toolchain/compile -j$(nproc) V=0
+
+      - name: 多线程编译
+        if: ${{ inputs.multithreading }}
+        working-directory: openWRT
+        run: make -j$(nproc) V=s
+
+      - name: 单线程编译  
+        if: ${{ !inputs.multithreading }}
+        working-directory: openWRT
+        run: make -j1 V=s
+
+      - name: 检查编译结果
+        working-directory: openWRT
+        run: |
+          echo "编译完成，检查产物..."
+          find bin -name "*.bin" -o -name "*.img" | head -10
+          echo "产物总大小:"
+          du -sh bin/targets
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-build-${{ github.run_number }}
+          path: |
+            openWRT/bin/targets/**/*
+            openWRT/bin/packages/**/*
+          retention-days: 7
