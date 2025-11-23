@@ -272,16 +272,35 @@ jobs:
           fi
 
       - name: 编译Docker组件（条件编译）
-        if: ${{ !inputs.skip_kmods }}
+        if: ${{ !github.event.inputs.skip_kmods }}
         run: |
           echo "编译Docker组件..."
           cd openwrt
-          # 单独编译Docker相关包
-          for pkg in docker dockerd libdevmapper libltdl; do
-            echo "编译包: $pkg"
-            make package/feeds/packages/$pkg/compile -j1 V=0 || \
-            make package/feeds/packages/$pkg/compile -j1 V=s
-          done
+          # 单独编译Docker相关包，使用更稳健的方法
+          echo "开始编译Docker相关组件..."
+          
+          # 检查Docker包是否存在
+          if [ -d "package/feeds/packages/docker" ] || [ -d "feeds/packages/utils/docker" ]; then
+            echo "编译Docker核心包..."
+            make package/feeds/packages/docker/compile -j1 V=0 || \
+            make package/feeds/packages/docker/compile -j1 V=s
+          else
+            echo "Docker包目录不存在，尝试其他路径..."
+            find feeds -name "docker" -type d | head -5
+          fi
+          
+          if [ -d "package/feeds/packages/dockerd" ] || [ -d "feeds/packages/utils/dockerd" ]; then
+            echo "编译Docker守护进程..."
+            make package/feeds/packages/dockerd/compile -j1 V=0 || \
+            make package/feeds/packages/dockerd/compile -j1 V=s
+          fi
+          
+          if [ -d "package/feeds/packages/containerd" ]; then
+            echo "编译containerd..."
+            make package/feeds/packages/containerd/compile -j1 V=0
+          fi
+          
+          echo "Docker组件编译完成"
 
       - name: 空间清理（编译后）
         run: |
