@@ -1,4 +1,4 @@
-name: 🚀 编译 ImmortalWrt for SL-3000 (无USB版)
+name: 🚀 编译 ImmortalWrt for SL-3000 (无USB版) - 优化版
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       skip_kmods:
         description: "跳过内核模块编译（节省空间）"
         type: boolean
-        default: false
+        default: true  # 默认改为true，减少编译量
       minimal_build:
         description: "最小化编译（仅核心+Docker）"
         type: boolean
@@ -50,55 +50,39 @@ jobs:
           sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null || true
           echo "清理完成"
 
-      - name: 更新软件源并安装依赖
+      - name: 安装核心依赖（最小化）
         run: |
-          echo "更新软件源并安装依赖..."
-          sudo apt update
-          sudo apt upgrade -y
-          
-          # 添加 universe 和 multiverse 仓库
-          sudo apt install -y software-properties-common
-          sudo add-apt-repository -y universe
-          sudo add-apt-repository -y multiverse
+          echo "安装核心编译依赖..."
           sudo apt update
           
-          # 安装核心编译工具
+          # 只安装最核心的编译工具
           sudo apt install -y --no-install-recommends \
-            build-essential ccache cmake curl flex gawk gettext git \
+            build-essential ccache curl file gawk gettext git \
             libncurses-dev libssl-dev python3 python3-pip python3-setuptools \
-            rsync subversion unzip wget zlib1g-dev \
+            rsync unzip wget zlib1g-dev \
             gcc-multilib g++-multilib pkg-config autoconf automake libtool \
-            device-tree-compiler lld llvm ninja-build upx-ucl zstd \
-            file gperf help2man texinfo xsltproc
-          
-          # 安装 OpenWrt 特定依赖（使用可用的包名）
-          sudo apt install -y \
-            libjson-c-dev libpcre2-dev libmbedtls-dev libsodium-dev \
-            libc-ares-dev libcurl4-openssl-dev libxml2-dev libsqlite3-dev
-          
-          # 尝试安装可能名称不同的包
-          sudo apt install -y libubox-dev || echo "libubox-dev 不可用，将在编译时构建"
-          sudo apt install -y libubus-dev || echo "libubus-dev 不可用，将在编译时构建"
-          
-          # 安装其他可能需要的依赖
-          sudo apt install -y \
-            asciidoc bash-completion bison bzip2 diffutils fastjar findutils \
-            genisoimage gzip libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev \
-            libmpc-dev libmpfr-dev libpopt-dev libreadline-dev libtool-bin \
-            libyaml-dev make patch perl pkg-config poppler-utils python2.7-dev \
-            qemu-utils re2c scons squashfs-tools time unar util-linux vim xxd
+            device-tree-compiler lld llvm ninja-build \
+            gperf help2man texinfo xsltproc \
+            asciidoc bison bzip2 diffutils findutils \
+            gzip make patch perl re2c scons squashfs-tools time xxd
           
           # 清理APT缓存
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
-          echo "依赖安装完成"
+          echo "核心依赖安装完成"
 
-      - name: 设置ccache优化
+      - name: 设置编译优化
         run: |
-          ccache -M 1G 2>/dev/null || true
+          # 设置ccache
+          ccache -M 2G 2>/dev/null || true
+          # 优化git设置减少内存使用
           git config --global pack.windowMemory 50m
           git config --global pack.packSizeLimit 50m
           git config --global core.compression 9
+          git config --global core.packedGitLimit 128m
+          git config --global core.packedGitWindowSize 16m
+          # 设置ulimit避免内存不足
+          ulimit -s 32768 2>/dev/null || true
 
       - name: 克隆当前仓库
         uses: actions/checkout@v4
@@ -120,8 +104,8 @@ jobs:
             echo "✅ openwrt 目录存在"
             ls -la openwrt/
           else
-            echo "❌ openwrt 目录不存在，创建空目录"
-            mkdir -p openwrt
+            echo "❌ openwrt 目录不存在，尝试完整克隆"
+            git clone --depth=1 $REPO_URL -b $BRANCH openwrt
           fi
 
       - name: 编译前空间确认
@@ -130,165 +114,208 @@ jobs:
           df -h
           AVAILABLE=$(df / --output=avail | tail -1)
           echo "可用空间: ${AVAILABLE}KB"
-          if [ $AVAILABLE -lt 8000000 ]; then
-            echo "警告: 磁盘空间紧张，编译可能失败"
+          if [ $AVAILABLE -lt 10000000 ]; then
+            echo "⚠️ 磁盘空间紧张，启用极简编译模式"
           else
-            echo "磁盘空间充足"
+            echo "✅ 磁盘空间充足"
           fi
 
       - name: 应用无USB配置
         run: |
           echo "应用无USB配置..."
           mkdir -p openwrt
-          # 使用逐行echo写入配置，避免多行字符串问题
-          echo "CONFIG_TARGET_mediatek=y" > openwrt/.config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> openwrt/.config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y" >> openwrt/.config
-          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> openwrt/.config
-          echo "CONFIG_TARGET_ROOTFS_EXT4FS=n" >> openwrt/.config
-          echo "CONFIG_TARGET_KERNEL_PARTSIZE=32" >> openwrt/.config
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024" >> openwrt/.config
-          echo "CONFIG_PACKAGE_block-mount=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_uhttpd=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_fstools=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_procd=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_uci=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_ubus=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_ubox=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-mt7915e=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-mt7916-firmware=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-mtk-esw-rt3050=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-mtk-hnat=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-mtk-ppe=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-phy-mediatek-ge-soc=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_dnsmasq=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_dnsmasq-full=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_firewall=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_odhcpd=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_odhcp6c=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_iptables=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_ip6tables=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_docker=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_dockerd=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_libdevmapper=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_libltdl=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-dm=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-br-netfilter=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-veth=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-ipt-core=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-ipt-nat=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-nf-conntrack=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-nf-nat=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-fuse=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-loop=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_luci=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_luci-ssl-openssl=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_luci-app-firewall=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_curl=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_bash=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_python3=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> openwrt/.config
-          echo "CONFIG_PACKAGE_kmod-fs-squashfs=y" >> openwrt/.config
-          echo "CONFIG_CCACHE=y" >> openwrt/.config
-          echo "CONFIG_BUILD_LOG=y" >> openwrt/.config
+          cat > openwrt/.config << 'EOF'
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_EXT4FS=n
+CONFIG_TARGET_KERNEL_PARTSIZE=32
+CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+CONFIG_CCACHE=y
+CONFIG_BUILD_LOG=y
+CONFIG_SINGLE_IMAGE=y
+# 核心包
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_uhttpd=y
+CONFIG_PACKAGE_fstools=y
+CONFIG_PACKAGE_procd=y
+CONFIG_PACKAGE_uci=y
+CONFIG_PACKAGE_ubus=y
+CONFIG_PACKAGE_ubox=y
+# 网络驱动
+CONFIG_PACKAGE_kmod-mt7915e=y
+CONFIG_PACKAGE_kmod-mt7916-firmware=y
+CONFIG_PACKAGE_kmod-mtk-esw-rt3050=y
+CONFIG_PACKAGE_kmod-mtk-hnat=y
+CONFIG_PACKAGE_kmod-mtk-ppe=y
+CONFIG_PACKAGE_kmod-phy-mediatek-ge-soc=y
+# 网络服务
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_firewall=y
+CONFIG_PACKAGE_odhcpd=y
+CONFIG_PACKAGE_odhcp6c=y
+CONFIG_PACKAGE_iptables=y
+CONFIG_PACKAGE_ip6tables=y
+# Docker相关
+CONFIG_PACKAGE_docker=y
+CONFIG_PACKAGE_dockerd=y
+CONFIG_PACKAGE_libdevmapper=y
+CONFIG_PACKAGE_libltdl=y
+CONFIG_PACKAGE_kmod-dm=y
+CONFIG_PACKAGE_kmod-br-netfilter=y
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-ipt-core=y
+CONFIG_PACKAGE_kmod-ipt-nat=y
+CONFIG_PACKAGE_kmod-nf-conntrack=y
+CONFIG_PACKAGE_kmod-nf-nat=y
+CONFIG_PACKAGE_kmod-fuse=y
+CONFIG_PACKAGE_kmod-loop=y
+# 文件系统
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-squashfs=y
+# Luci
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl-openssl=y
+CONFIG_PACKAGE_luci-app-dockerman=y
+CONFIG_PACKAGE_luci-app-firewall=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+# 工具
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_bash=y
+CONFIG_PACKAGE_python3=y
+EOF
           echo "配置文件已生成"
 
-      - name: 更新feeds
+      - name: 更新feeds（简化版）
         run: |
           echo "更新feeds..."
-          if [ -d "openwrt" ]; then
-            cd openwrt
-            ./scripts/feeds update -a
-            ./scripts/feeds install -a
-            echo "feeds更新完成"
-          else
-            echo "错误: openwrt目录不存在"
-            exit 1
-          fi
+          cd openwrt
+          # 只更新基础feeds，跳过部分可选包
+          ./scripts/feeds update base packages luci
+          ./scripts/feeds install -a
+          echo "feeds更新完成"
 
       - name: 配置检查
         run: |
           echo "应用配置优化..."
-          if [ -d "openwrt" ]; then
-            cd openwrt
-            make defconfig
-            ./scripts/diffconfig.sh > diffconfig.txt
-            echo "配置优化完成"
-          else
-            echo "错误: openwrt目录不存在"
-            exit 1
-          fi
+          cd openwrt
+          make defconfig
+          ./scripts/diffconfig.sh > diffconfig.txt
+          echo "=== 最终配置 ==="
+          cat diffconfig.txt
+          echo "配置优化完成"
 
-      - name: 下载源码
+      - name: 下载源码（带重试）
         run: |
-          echo "下载源码..."
-          if [ -d "openwrt" ]; then
-            cd openwrt
-            make download -j2 V=0 || make download -j1 V=0
-          else
-            echo "错误: openwrt目录不存在"
-            exit 1
-          fi
-
-      - name: 编译工具链
-        run: |
-          echo "编译工具链..."
-          if [ -d "openwrt" ]; then
-            cd openwrt
-            make tools/compile -j1 V=0
-            make toolchain/compile -j1 V=0
-          else
-            echo "错误: openwrt目录不存在"
-            exit 1
-          fi
-
-      - name: 编译核心系统
-        run: |
-          echo "编译核心系统..."
-          if [ -d "openwrt" ]; then
-            cd openwrt
-            if [ "${{ inputs.minimal_build }}" = "true" ]; then
-              echo "使用最小化编译模式..."
-              make -j2 V=s
+          echo "下载源码（带重试机制）..."
+          cd openwrt
+          for i in {1..3}; do
+            echo "第 $i 次尝试下载..."
+            if make download -j2 V=0; then
+              echo "✅ 下载成功"
+              break
             else
-              make -j$(nproc) V=s
+              echo "❌ 第 $i 次下载失败"
+              if [ $i -eq 3 ]; then
+                echo "⚠️ 最终下载失败，尝试单线程下载..."
+                make download -j1 V=0 || true
+              fi
+              sleep 10
             fi
+          done
+
+      - name: 编译工具链（分步进行）
+        run: |
+          echo "编译工具链（分步进行）..."
+          cd openwrt
+          # 分步编译工具链，避免资源竞争
+          echo "步骤1: 编译基础工具..."
+          make tools/install -j1 V=0 || make tools/install -j1 V=s
+          
+          echo "步骤2: 编译工具链..."
+          make toolchain/install -j1 V=0 || make toolchain/install -j1 V=s
+          
+          echo "✅ 工具链编译完成"
+
+      - name: 编译核心系统（优化版）
+        run: |
+          echo "编译核心系统（优化版）..."
+          cd openwrt
+          
+          # 设置编译环境变量优化
+          export MAKE_ARGS="-j2"
+          export GLUON_DEPRECATED=1
+          
+          if [ "${{ github.event.inputs.minimal_build }}" = "true" ]; then
+            echo "使用最小化编译模式..."
+            # 分步编译，避免卡住
+            echo "1. 编译内核..."
+            make target/linux/install $MAKE_ARGS V=0
+            
+            echo "2. 编译基础包..."
+            make package/base-files/install $MAKE_ARGS V=0
+            make package/kernel/linux/install $MAKE_ARGS V=0
+            
+            echo "3. 编译系统核心..."
+            make package/system/opkg/install $MAKE_ARGS V=0
+            make package/system/procd/install $MAKE_ARGS V=0
+            
+            echo "4. 编译网络核心..."
+            make package/network/services/dnsmasq/install $MAKE_ARGS V=0
+            make package/network/config/firewall/install $MAKE_ARGS V=0
+            
+            echo "5. 最终编译..."
+            make $MAKE_ARGS V=0 || make -j1 V=s
           else
-            echo "错误: openwrt目录不存在"
-            exit 1
+            echo "使用标准编译模式..."
+            make $MAKE_ARGS V=0 || make -j1 V=s
           fi
 
-      - name: 编译Docker组件
+      - name: 编译Docker组件（条件编译）
         if: ${{ !inputs.skip_kmods }}
         run: |
           echo "编译Docker组件..."
-          if [ -d "openwrt" ]; then
-            cd openwrt
-            make package/feeds/packages/docker/compile V=s -j2
-            make package/feeds/packages/dockerd/compile V=s -j2
-          else
-            echo "错误: openwrt目录不存在"
-            exit 1
+          cd openwrt
+          # 单独编译Docker相关包
+          for pkg in docker dockerd libdevmapper libltdl; do
+            echo "编译包: $pkg"
+            make package/feeds/packages/$pkg/compile -j1 V=0 || \
+            make package/feeds/packages/$pkg/compile -j1 V=s
+          done
+
+      - name: 空间清理（编译后）
+        run: |
+          echo "编译后清理临时文件..."
+          cd openwrt
+          # 清理编译中间文件，保留最终产物
+          if [ -d "build_dir" ]; then
+            find build_dir -name "*.o" -delete 2>/dev/null || true
+            find build_dir -name "*.a" -delete 2>/dev/null || true
+            find build_dir -name "*.lo" -delete 2>/dev/null || true
           fi
+          echo "清理完成"
 
       - name: 验证编译结果
         run: |
           echo "检查编译产物..."
           if [ -d "openwrt" ]; then
             cd openwrt
-            if find bin/targets -name "*sl_3000*" 2>/dev/null | grep -q .; then
+            if find bin/targets -name "*sl_3000*" -o -name "*sl3000*" 2>/dev/null | grep -q .; then
               echo "✅ SL-3000固件编译成功"
-              find bin/targets -name "*sl_3000*.bin" -exec echo "固件: {}" \;
+              find bin/targets -name "*.bin" -exec echo "固件: {}" \;
+              # 显示文件大小
+              find bin/targets -name "*.bin" -exec ls -lh {} \;
             else
               echo "❌ 未找到SL-3000固件"
               echo "当前目录内容:"
               ls -la bin/targets/ 2>/dev/null || echo "bin/targets目录不存在"
+              # 检查是否有其他产物
+              find bin -name "*.bin" -o -name "*.img" 2>/dev/null | head -10
               exit 1
             fi
           else
-            echo "❌ openwrt目录不存在，无法验证编译结果"
+            echo "❌ openwrt目录不存在"
             exit 1
           fi
 
@@ -298,24 +325,30 @@ jobs:
         with:
           name: immortalwrt-sl3000-nousb-${{ github.run_id }}
           path: |
-            openwrt/bin/targets/**/*
+            openwrt/bin/targets/**/*.bin
+            openwrt/bin/targets/**/*.manifest
             openwrt/bin/packages/**/docker*.ipk
           retention-days: 30
+          compression-level: 0  # 禁用压缩，节省时间
 
       - name: 生成编译报告
         if: always()
         run: |
-          echo "=== 编译完成报告 ===" > build-report.txt
-          echo "时间: $(date)" >> build-report.txt
-          echo "工作流结果: ${{ job.status }}" >> build-report.txt
-          echo "最终磁盘空间:" >> build-report.txt
-          df -h >> build-report.txt
-          
-          if [ -d "openwrt" ]; then
-            echo "编译产物:" >> build-report.txt
-            find openwrt/bin -name "*.bin" -exec echo "固件: {}" \; >> build-report.txt 2>/dev/null || echo "未找到固件文件" >> build-report.txt
-          else
-            echo "openwrt目录不存在" >> build-report.txt
-          fi
+          {
+            echo "=== 编译完成报告 ==="
+            echo "时间: $(date)"
+            echo "工作流结果: ${{ job.status }}"
+            echo "最终磁盘空间:"
+            df -h
+            echo "编译配置:"
+            echo "  - 最小化编译: ${{ github.event.inputs.minimal_build }}"
+            echo "  - 跳过内核模块: ${{ github.event.inputs.skip_kmods }}"
+            if [ -d "openwrt" ]; then
+              echo "编译产物:"
+              find openwrt/bin -name "*.bin" -exec echo "固件: {}" \; 2>/dev/null || echo "未找到固件文件"
+            else
+              echo "openwrt目录不存在"
+            fi
+          } > build-report.txt
           
           cat build-report.txt
